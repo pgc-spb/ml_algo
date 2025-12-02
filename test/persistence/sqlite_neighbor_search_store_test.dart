@@ -3,7 +3,6 @@ import 'package:ml_algo/ml_algo.dart';
 import 'package:ml_algo/src/persistence/neighbor_search_store.dart';
 import 'package:ml_algo/src/persistence/sqlite_neighbor_search_store.dart';
 import 'package:ml_dataframe/ml_dataframe.dart';
-import 'package:ml_linalg/distance.dart';
 import 'package:ml_linalg/vector.dart';
 import 'package:test/test.dart';
 
@@ -54,8 +53,8 @@ void main() {
       expect(loadedSearcher!.digitCapacity, digitCapacity);
       expect(loadedSearcher.seed, 10);
       expect(loadedSearcher.columns, data.header);
-      expect(loadedSearcher.points.rowCount, data.rowCount);
-      expect(loadedSearcher.points.columnCount, data.columnCount);
+      expect(loadedSearcher.points.rowCount, data.rows.length);
+      expect(loadedSearcher.points.columnCount, data.header.length);
     });
 
     test('should save searcher with custom ID', () async {
@@ -66,7 +65,8 @@ void main() {
       final searcher = RandomBinaryProjectionSearcher(data, 3);
       final customId = 'my-custom-id';
 
-      final searcherId = await store.saveSearcher(searcher, searcherId: customId);
+      final searcherId =
+          await store.saveSearcher(searcher, searcherId: customId);
 
       expect(searcherId, customId);
 
@@ -101,8 +101,14 @@ void main() {
     });
 
     test('should list all searchers', () async {
-      final data1 = DataFrame([[1, 2], [3, 4]], headerExists: false);
-      final data2 = DataFrame([[5, 6], [7, 8]], headerExists: false);
+      final data1 = DataFrame([
+        [1, 2],
+        [3, 4]
+      ], headerExists: false);
+      final data2 = DataFrame([
+        [5, 6],
+        [7, 8]
+      ], headerExists: false);
       final searcher1 = RandomBinaryProjectionSearcher(data1, 3);
       final searcher2 = RandomBinaryProjectionSearcher(data2, 3);
 
@@ -184,7 +190,8 @@ void main() {
 
       for (var i = 0; i < originalList.length; i++) {
         expect(loadedList[i].index, originalList[i].index);
-        expect(loadedList[i].distance, closeTo(originalList[i].distance, 0.001));
+        expect(
+            loadedList[i].distance, closeTo(originalList[i].distance, 0.001));
       }
     });
 

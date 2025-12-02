@@ -2,7 +2,6 @@ import 'dart:io';
 import 'package:ml_algo/ml_algo.dart';
 import 'package:ml_algo/src/persistence/sqlite_neighbor_search_store.dart';
 import 'package:ml_dataframe/ml_dataframe.dart';
-import 'package:ml_linalg/distance.dart';
 import 'package:ml_linalg/vector.dart';
 import 'package:test/test.dart';
 
@@ -12,7 +11,8 @@ void main() {
     late SQLiteNeighborSearchStore store;
 
     setUp(() {
-      testDbPath = 'test_integration_${DateTime.now().millisecondsSinceEpoch}.db';
+      testDbPath =
+          'test_integration_${DateTime.now().millisecondsSinceEpoch}.db';
       store = SQLiteNeighborSearchStore(testDbPath);
     });
 
@@ -24,7 +24,8 @@ void main() {
       }
     });
 
-    test('should perform full workflow: create → save → load → query', () async {
+    test('should perform full workflow: create → save → load → query',
+        () async {
       // Create searcher
       final data = DataFrame([
         [23, 12, 34],
@@ -109,7 +110,8 @@ void main() {
       expect(neighbours1.first.index, isNot(equals(neighbours2.first.index)));
     });
 
-    test('should preserve query results with different distance metrics', () async {
+    test('should preserve query results with different distance metrics',
+        () async {
       final data = DataFrame([
         [1.0, 2.0, 3.0],
         [4.0, 5.0, 6.0],
@@ -137,7 +139,7 @@ void main() {
 
       // Results should be different for different metrics
       expect(euclideanNeighbours.first.index,
-          isNot(necessarilyEquals(cosineNeighbours.first.index)));
+          isNot(equals(cosineNeighbours.first.index)));
     });
 
     test('should handle searcher updates (save with same ID)', () async {
@@ -157,7 +159,8 @@ void main() {
       await searcher1.saveToStore(store, searcherId: id);
       await searcher2.saveToStore(store, searcherId: id);
 
-      final loaded = await RandomBinaryProjectionSearcher.loadFromStore(store, id);
+      final loaded =
+          await RandomBinaryProjectionSearcher.loadFromStore(store, id);
 
       expect(loaded, isNotNull);
       expect(loaded!.points.rowCount, 2);

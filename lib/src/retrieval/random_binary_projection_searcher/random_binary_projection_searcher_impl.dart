@@ -13,6 +13,7 @@ import 'package:ml_algo/src/retrieval/random_binary_projection_searcher/helpers/
 import 'package:ml_algo/src/retrieval/random_binary_projection_searcher/random_binary_projection_searcher.dart';
 import 'package:ml_algo/src/retrieval/random_binary_projection_searcher/random_binary_projection_searcher_json_keys.dart';
 import 'package:ml_linalg/distance.dart';
+import 'package:ml_linalg/dtype.dart';
 import 'package:ml_linalg/matrix.dart';
 import 'package:ml_linalg/vector.dart';
 

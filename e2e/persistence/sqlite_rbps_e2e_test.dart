@@ -2,7 +2,6 @@ import 'dart:io';
 import 'package:ml_algo/ml_algo.dart';
 import 'package:ml_algo/src/persistence/sqlite_neighbor_search_store.dart';
 import 'package:ml_dataframe/ml_dataframe.dart';
-import 'package:ml_linalg/distance.dart';
 import 'package:ml_linalg/vector.dart';
 import 'package:test/test.dart';
 
@@ -83,19 +82,9 @@ void main() {
       expect(loadedSearcher, isNotNull);
 
       // Query for similar phrases (simulate translation lookup)
-      final queryPhrase = Vector.fromList([
-        50.0,
-        51.0,
-        52.0,
-        53.0,
-        54.0,
-        55.0,
-        56.0,
-        57.0,
-        58.0,
-        59.0
-      ]);
-      final similarPhrases = loadedSearcher.query(queryPhrase, 5, 3);
+      final queryPhrase = Vector.fromList(
+          [50.0, 51.0, 52.0, 53.0, 54.0, 55.0, 56.0, 57.0, 58.0, 59.0]);
+      final similarPhrases = loadedSearcher!.query(queryPhrase, 5, 3);
 
       expect(similarPhrases.length, 5);
       // Should find phrases around index 5 (since 50/10 = 5)

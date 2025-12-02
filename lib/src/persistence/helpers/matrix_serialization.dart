@@ -106,5 +106,5 @@ Matrix deserializeMatrix(List<Uint8List> rowBlobs, DType dtype) {
     rows.add(row);
   }
 
-  return Matrix.fromRows(rows, dtype: dtype);
+  return Matrix.fromList(rows, dtype: dtype);
 }

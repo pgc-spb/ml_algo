@@ -1,13 +1,12 @@
-import 'dart:io';
 import 'dart:typed_data';
 import 'package:ml_algo/src/persistence/helpers/bin_map_serialization.dart';
 import 'package:ml_algo/src/persistence/helpers/dtype_converter.dart';
 import 'package:ml_algo/src/persistence/helpers/matrix_serialization.dart';
 import 'package:ml_algo/src/persistence/neighbor_search_store.dart';
+import 'package:ml_algo/src/retrieval/random_binary_projection_searcher/random_binary_projection_searcher.dart';
 import 'package:ml_algo/src/retrieval/random_binary_projection_searcher/random_binary_projection_searcher_impl.dart';
 import 'package:ml_dataframe/ml_dataframe.dart';
 import 'package:ml_linalg/dtype.dart';
-import 'package:ml_linalg/matrix.dart';
 import 'package:sqlite3/sqlite3.dart';
 
 /// SQLite implementation of [NeighborSearchStore].
@@ -228,7 +227,8 @@ class SQLiteNeighborSearchStore implements NeighborSearchStore {
     final db = _db!;
 
     // Check if searcher exists
-    final checkStmt = db.prepare('SELECT id FROM neighbor_searchers WHERE id = ?');
+    final checkStmt =
+        db.prepare('SELECT id FROM neighbor_searchers WHERE id = ?');
     final result = checkStmt.select([searcherId]);
     checkStmt.dispose();
 
@@ -303,9 +303,8 @@ class SQLiteNeighborSearchStore implements NeighborSearchStore {
       ORDER BY bin_id, point_index
     ''');
     final binRows = binStmt.select([searcherId]);
-    final flattenedBins = binRows
-        .map((row) => MapEntry(row[0] as int, row[1] as int))
-        .toList();
+    final flattenedBins =
+        binRows.map((row) => MapEntry(row[0] as int, row[1] as int)).toList();
     binStmt.dispose();
 
     final bins = reconstructBinMap(flattenedBins);
@@ -329,7 +328,8 @@ class SQLiteNeighborSearchStore implements NeighborSearchStore {
     final db = _db!;
 
     // Check if searcher exists
-    final checkStmt = db.prepare('SELECT id FROM neighbor_searchers WHERE id = ?');
+    final checkStmt =
+        db.prepare('SELECT id FROM neighbor_searchers WHERE id = ?');
     final result = checkStmt.select([searcherId]);
     checkStmt.dispose();
 
@@ -338,7 +338,8 @@ class SQLiteNeighborSearchStore implements NeighborSearchStore {
     }
 
     // Delete searcher (cascade will delete related records)
-    final deleteStmt = db.prepare('DELETE FROM neighbor_searchers WHERE id = ?');
+    final deleteStmt =
+        db.prepare('DELETE FROM neighbor_searchers WHERE id = ?');
     deleteStmt.execute([searcherId]);
     deleteStmt.dispose();
 
@@ -349,7 +350,8 @@ class SQLiteNeighborSearchStore implements NeighborSearchStore {
   Future<List<String>> listSearchers() async {
     final db = _db!;
 
-    final stmt = db.prepare('SELECT id FROM neighbor_searchers ORDER BY created_at');
+    final stmt =
+        db.prepare('SELECT id FROM neighbor_searchers ORDER BY created_at');
     final rows = stmt.select([]);
     final ids = rows.map((row) => row[0] as String).toList();
     stmt.dispose();
@@ -358,8 +360,7 @@ class SQLiteNeighborSearchStore implements NeighborSearchStore {
   }
 
   @override
-  Future<Map<String, dynamic>?> getSearcherMetadata(
-      String searcherId) async {
+  Future<Map<String, dynamic>?> getSearcherMetadata(String searcherId) async {
     final db = _db!;
 
     // Load metadata
@@ -424,7 +425,8 @@ class SQLiteNeighborSearchStore implements NeighborSearchStore {
     final db = _db!;
 
     // Check if searcher exists
-    final checkStmt = db.prepare('SELECT id FROM neighbor_searchers WHERE id = ?');
+    final checkStmt =
+        db.prepare('SELECT id FROM neighbor_searchers WHERE id = ?');
     final result = checkStmt.select([searcherId]);
     checkStmt.dispose();
 

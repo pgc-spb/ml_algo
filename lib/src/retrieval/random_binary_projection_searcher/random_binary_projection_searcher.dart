@@ -286,7 +286,9 @@ abstract class RandomBinaryProjectionSearcher with SerializableMixin {
   static Future<RandomBinaryProjectionSearcher?> loadFromStore(
     NeighborSearchStore store,
     String searcherId,
-  );
+  ) {
+    return RandomBinaryProjectionSearcherImpl.loadFromStore(store, searcherId);
+  }
 
   /// Trains a new searcher from data stored in a NeighborSearchStore.
   ///

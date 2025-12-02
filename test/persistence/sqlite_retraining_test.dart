@@ -2,7 +2,6 @@ import 'dart:io';
 import 'package:ml_algo/ml_algo.dart';
 import 'package:ml_algo/src/persistence/sqlite_neighbor_search_store.dart';
 import 'package:ml_dataframe/ml_dataframe.dart';
-import 'package:ml_linalg/dtype.dart';
 import 'package:ml_linalg/vector.dart';
 import 'package:sqlite3/sqlite3.dart' show sqlite3;
 import 'package:test/test.dart';
@@ -13,7 +12,8 @@ void main() {
     late SQLiteNeighborSearchStore store;
 
     setUp(() {
-      testDbPath = 'test_retraining_${DateTime.now().millisecondsSinceEpoch}.db';
+      testDbPath =
+          'test_retraining_${DateTime.now().millisecondsSinceEpoch}.db';
       store = SQLiteNeighborSearchStore(testDbPath);
     });
 
@@ -37,8 +37,8 @@ void main() {
       final loadedData = await store.loadSearcherData(searcherId);
 
       expect(loadedData, isNotNull);
-      expect(loadedData!.rowCount, 3);
-      expect(loadedData.columnCount, 3);
+      expect(loadedData!.rows.length, 3);
+      expect(loadedData.header.length, 3);
       expect(loadedData.header, data.header);
     });
 
