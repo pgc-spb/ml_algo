@@ -2,12 +2,25 @@ import 'dart:typed_data';
 import 'package:ml_algo/src/persistence/helpers/bin_map_serialization.dart';
 import 'package:ml_algo/src/persistence/helpers/dtype_converter.dart';
 import 'package:ml_algo/src/persistence/helpers/matrix_serialization.dart';
+import 'package:ml_algo/src/persistence/lazy_point_accessor.dart';
 import 'package:ml_algo/src/persistence/neighbor_search_store.dart';
+import 'package:ml_algo/src/persistence/sqlite_optimized_searcher.dart';
+import 'package:ml_algo/src/retrieval/random_binary_projection_searcher/helpers/get_binary_representation.dart';
+import 'package:ml_algo/src/retrieval/random_binary_projection_searcher/helpers/get_indices_from_binary_representation.dart';
 import 'package:ml_algo/src/retrieval/random_binary_projection_searcher/random_binary_projection_searcher.dart';
 import 'package:ml_algo/src/retrieval/random_binary_projection_searcher/random_binary_projection_searcher_impl.dart';
 import 'package:ml_dataframe/ml_dataframe.dart';
 import 'package:ml_linalg/dtype.dart';
+import 'package:ml_linalg/matrix.dart';
 import 'package:sqlite3/sqlite3.dart';
+
+/// Text content for a translation point.
+class TextContent {
+  final String? frenchText;
+  final String? englishText;
+
+  TextContent(this.frenchText, this.englishText);
+}
 
 /// SQLite implementation of [NeighborSearchStore].
 ///
@@ -73,10 +86,66 @@ class SQLiteNeighborSearchStore implements NeighborSearchStore {
         searcher_id TEXT NOT NULL,
         point_index INTEGER NOT NULL,
         vector_data BLOB NOT NULL,
+        bin_id INTEGER,
         PRIMARY KEY (searcher_id, point_index),
         FOREIGN KEY (searcher_id) REFERENCES neighbor_searchers(id) ON DELETE CASCADE
       )
     ''');
+
+    // Add bin_id column if it doesn't exist (migration support)
+    try {
+      db.execute('ALTER TABLE searcher_points ADD COLUMN bin_id INTEGER');
+    } catch (e) {
+      // Column already exists, ignore
+    }
+
+    // Add text content columns for FTS (migration support)
+    try {
+      db.execute('ALTER TABLE searcher_points ADD COLUMN french_text TEXT');
+    } catch (e) {
+      // Column already exists, ignore
+    }
+    try {
+      db.execute('ALTER TABLE searcher_points ADD COLUMN english_text TEXT');
+    } catch (e) {
+      // Column already exists, ignore
+    }
+
+    // Create FTS virtual table for full-text search
+    // Using standalone FTS table (not content table) for simplicity
+    // We'll manually sync data to FTS
+    try {
+      db.execute('''
+        CREATE VIRTUAL TABLE IF NOT EXISTS searcher_points_fts USING fts5(
+          searcher_id,
+          point_index,
+          french_text,
+          english_text
+        )
+      ''');
+
+      // Create index for fast lookups
+      db.execute('''
+        CREATE INDEX IF NOT EXISTS idx_fts_searcher_point
+        ON searcher_points_fts(searcher_id, point_index)
+      ''');
+    } catch (e) {
+      // Try FTS4 as fallback
+      try {
+        db.execute('''
+          CREATE VIRTUAL TABLE IF NOT EXISTS searcher_points_fts USING fts4(
+            searcher_id,
+            point_index,
+            french_text,
+            english_text
+          )
+        ''');
+      } catch (e2) {
+        // FTS not available, continue without it
+        print(
+            'Warning: FTS not available in SQLite. Full-text search will be disabled.');
+      }
+    }
 
     // Store random projection vectors
     db.execute('''
@@ -112,6 +181,12 @@ class SQLiteNeighborSearchStore implements NeighborSearchStore {
     db.execute('''
       CREATE INDEX IF NOT EXISTS idx_searcher_random_vectors 
       ON searcher_random_vectors(searcher_id)
+    ''');
+
+    // Index for bin_id to support optimized queries
+    db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_searcher_points_bin 
+      ON searcher_points(searcher_id, bin_id)
     ''');
   }
 
@@ -174,15 +249,19 @@ class SQLiteNeighborSearchStore implements NeighborSearchStore {
       }
       columnStmt.dispose();
 
-      // Save points (rows)
+      // Save points (rows) with bin_id
+      // Calculate bin IDs for all points
+      final binIds = _calculateBinIds(impl.points, impl.randomVectors);
+
       final pointStmt = db.prepare('''
         INSERT OR REPLACE INTO searcher_points 
-        (searcher_id, point_index, vector_data)
-        VALUES (?, ?, ?)
+        (searcher_id, point_index, vector_data, bin_id)
+        VALUES (?, ?, ?, ?)
       ''');
       for (var i = 0; i < impl.points.rowCount; i++) {
         final rowBlob = serializeMatrixRow(impl.points, i);
-        pointStmt.execute([id, i, rowBlob]);
+        final binId = binIds[i];
+        pointStmt.execute([id, i, rowBlob, binId]);
       }
       pointStmt.dispose();
 
@@ -249,7 +328,7 @@ class SQLiteNeighborSearchStore implements NeighborSearchStore {
     final seed = metadataRow[1] as int?;
     final schemaVersion = metadataRow[2] as int;
     final dtype = stringToDType(metadataRow[3] as String);
-    final columnCount = metadataRow[4] as int;
+    //final columnCount = metadataRow[4] as int;
     final pointCount = metadataRow[5] as int;
 
     // Load column names
@@ -460,13 +539,8 @@ class SQLiteNeighborSearchStore implements NeighborSearchStore {
       return null;
     }
 
-    // Get dtype from first blob
-    final firstBlob = pointBlobs[0];
-    final byteData = ByteData.view(firstBlob.buffer);
-    final dtypeValue = byteData.getUint8(4);
-    final dtype = dtypeValue == 0 ? DType.float32 : DType.float64;
-
     // Deserialize all rows
+    // Note: deserializeMatrixRow reads dtype from each blob internally
     final rows = <List<num>>[];
     for (final blob in pointBlobs) {
       final rowValues = deserializeMatrixRow(blob);
@@ -650,5 +724,263 @@ class SQLiteNeighborSearchStore implements NeighborSearchStore {
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     final random = (timestamp % 1000000).toString().padLeft(6, '0');
     return 'searcher_${timestamp}_$random';
+  }
+
+  /// Calculates bin IDs for all points in the matrix.
+  ///
+  /// This is used when saving searchers to store bin_id in the database.
+  List<int> _calculateBinIds(Matrix points, Matrix randomVectors) {
+    final binaryRep = getBinaryRepresentation(points, randomVectors);
+    final binIds = getBinIdsFromBinaryRepresentation(binaryRep);
+    return binIds.toList();
+  }
+
+  /// Loads an optimized searcher that uses lazy loading and two-phase filtering.
+  ///
+  /// This method loads only metadata (bins, random vectors) into memory,
+  /// and uses SQLite for on-demand point loading during queries.
+  ///
+  /// [searcherId] is the ID of the searcher to load.
+  /// [approximateFilterLimit] is the maximum number of candidates to load
+  ///   for exact distance calculation (default: 2000).
+  /// [cacheSize] is the maximum number of points to cache in memory (default: 1000).
+  ///
+  /// Returns `null` if the searcher doesn't exist.
+  ///
+  /// Example:
+  ///
+  /// ```dart
+  /// final optimized = await store.loadOptimizedSearcher('my-searcher-id');
+  /// final neighbours = optimized!.query(point, k, searchRadius);
+  /// ```
+  Future<SQLiteOptimizedSearcher?> loadOptimizedSearcher(
+    String searcherId, {
+    int approximateFilterLimit = 2000,
+    int cacheSize = 1000,
+  }) async {
+    final db = _db!;
+
+    // Check if searcher exists
+    final checkStmt =
+        db.prepare('SELECT id FROM neighbor_searchers WHERE id = ?');
+    final result = checkStmt.select([searcherId]);
+    checkStmt.dispose();
+
+    if (result.isEmpty) {
+      return null;
+    }
+
+    // Load metadata
+    final metadataStmt = db.prepare('''
+      SELECT digit_capacity, seed, schema_version, dtype, column_count, point_count
+      FROM neighbor_searchers
+      WHERE id = ?
+    ''');
+    final metadataRow = metadataStmt.select([searcherId]).first;
+    metadataStmt.dispose();
+
+    final digitCapacity = metadataRow[0] as int;
+    final seed = metadataRow[1] as int?;
+    final schemaVersion = metadataRow[2] as int;
+    final dtype = stringToDType(metadataRow[3] as String);
+    final columnCount = metadataRow[4] as int;
+    final pointCount = metadataRow[5] as int;
+
+    // Load column names
+    final columnStmt = db.prepare('''
+      SELECT column_name
+      FROM searcher_columns
+      WHERE searcher_id = ?
+      ORDER BY column_index
+    ''');
+    final columnRows = columnStmt.select([searcherId]);
+    final columns = columnRows.map((row) => row[0] as String).toList();
+    columnStmt.dispose();
+
+    // Load random vectors (small, keep in memory)
+    final randomVectorStmt = db.prepare('''
+      SELECT vector_data
+      FROM searcher_random_vectors
+      WHERE searcher_id = ?
+      ORDER BY vector_index
+    ''');
+    final randomVectorRows = randomVectorStmt.select([searcherId]);
+    final randomVectorBlobs =
+        randomVectorRows.map((row) => row[0] as Uint8List).toList();
+    randomVectorStmt.dispose();
+
+    final randomVectors = deserializeMatrix(randomVectorBlobs, dtype);
+
+    // Load bins (small, keep in memory)
+    final binStmt = db.prepare('''
+      SELECT bin_id, point_index
+      FROM searcher_bins
+      WHERE searcher_id = ?
+      ORDER BY bin_id, point_index
+    ''');
+    final binRows = binStmt.select([searcherId]);
+    final flattenedBins =
+        binRows.map((row) => MapEntry(row[0] as int, row[1] as int)).toList();
+    binStmt.dispose();
+
+    final bins = reconstructBinMap(flattenedBins);
+
+    // Create lazy point accessor
+    final pointAccessor = SQLiteLazyPointAccessor(
+      db,
+      searcherId,
+      dtype,
+      columnCount,
+      pointCount,
+      maxCacheSize: cacheSize,
+    );
+
+    // Create optimized searcher
+    return SQLiteOptimizedSearcher(
+      columns: columns,
+      pointAccessor: pointAccessor,
+      randomVectors: randomVectors,
+      bins: bins,
+      digitCapacity: digitCapacity,
+      seed: seed,
+      schemaVersion: schemaVersion,
+      db: db,
+      searcherId: searcherId,
+      approximateFilterLimit: approximateFilterLimit,
+    );
+  }
+
+  /// Adds text content (French and English) to a point for FTS indexing.
+  ///
+  /// This enables full-text search on translation pairs.
+  Future<void> addTextContent(
+    String searcherId,
+    int pointIndex, {
+    required String frenchText,
+    required String englishText,
+  }) async {
+    final db = _db!;
+
+    // Update searcher_points table
+    final updateStmt = db.prepare('''
+      UPDATE searcher_points
+      SET french_text = ?, english_text = ?
+      WHERE searcher_id = ? AND point_index = ?
+    ''');
+
+    try {
+      updateStmt.execute([frenchText, englishText, searcherId, pointIndex]);
+
+      // Update FTS index (if available)
+      try {
+        // Delete old entry if exists
+        final deleteStmt = db.prepare('''
+          DELETE FROM searcher_points_fts
+          WHERE searcher_id = ? AND point_index = ?
+        ''');
+        deleteStmt.execute([searcherId, pointIndex]);
+        deleteStmt.dispose();
+
+        // Insert new entry
+        final ftsStmt = db.prepare('''
+          INSERT INTO searcher_points_fts(searcher_id, point_index, french_text, english_text)
+          VALUES (?, ?, ?, ?)
+        ''');
+        ftsStmt.execute([searcherId, pointIndex, frenchText, englishText]);
+        ftsStmt.dispose();
+      } catch (e) {
+        // FTS table might not exist, ignore
+      }
+    } finally {
+      updateStmt.dispose();
+    }
+  }
+
+  /// Performs FTS search and returns matching point indices.
+  ///
+  /// Returns empty list if FTS is not available or no matches found.
+  List<int> ftsSearch(String searcherId, String keywordQuery) {
+    final db = _db!;
+    final results = <int>[];
+
+    try {
+      // Escape special FTS characters and format for FTS5
+      // FTS5 query syntax: for multi-word, use quotes or space-separated
+      // Escape single quotes and wrap in quotes for phrase search
+      var escapedQuery = keywordQuery.replaceAll("'", "''");
+
+      // For FTS5, if query has multiple words, we can search each word
+      // or use phrase search with quotes. Let's use phrase search for exact match
+      // and also try individual words as fallback
+      final words = keywordQuery.trim().split(RegExp(r'\s+'));
+
+      // Build FTS5 query: use phrase search (quoted) for exact match
+      // FTS5 supports: "exact phrase" or word1 word2 (OR) or word1 OR word2
+      final phraseQuery = '"$escapedQuery"';
+      final wordQuery = words.join(' OR ');
+
+      // FTS5 query: search in french_text and english_text columns
+      // Try phrase search first, then fallback to word search
+      final ftsStmt = db.prepare('''
+        SELECT point_index FROM searcher_points_fts
+        WHERE searcher_id = ?
+          AND (french_text MATCH ? OR english_text MATCH ?)
+      ''');
+
+      // Try phrase search first (exact phrase match)
+      var rows = ftsStmt.select([searcherId, phraseQuery, phraseQuery]);
+
+      // If no results, try word-based search (any word matches)
+      if (rows.isEmpty && words.length > 1) {
+        final escapedWordQuery =
+            words.map((w) => w.replaceAll("'", "''")).join(' OR ');
+        rows = ftsStmt.select([searcherId, escapedWordQuery, escapedWordQuery]);
+      }
+
+      // If still no results, try simple query (single word or exact match)
+      if (rows.isEmpty) {
+        rows = ftsStmt.select([searcherId, escapedQuery, escapedQuery]);
+      }
+
+      for (final row in rows) {
+        results.add(row[0] as int);
+      }
+
+      ftsStmt.dispose();
+    } catch (e) {
+      // FTS not available or query failed, return empty
+      // For debugging: print('FTS error: $e');
+      return [];
+    }
+
+    return results;
+  }
+
+  /// Gets text content for a point.
+  Future<TextContent> getTextContent(
+    String searcherId,
+    int pointIndex,
+  ) async {
+    final db = _db!;
+    final stmt = db.prepare('''
+      SELECT french_text, english_text
+      FROM searcher_points
+      WHERE searcher_id = ? AND point_index = ?
+    ''');
+
+    try {
+      final rows = stmt.select([searcherId, pointIndex]);
+      if (rows.isEmpty) {
+        return TextContent(null, null);
+      }
+
+      final row = rows.first;
+      return TextContent(
+        row[0] as String?,
+        row[1] as String?,
+      );
+    } finally {
+      stmt.dispose();
+    }
   }
 }
