@@ -75,8 +75,8 @@ void main() {
         await store.addTextContent(
           searcherId,
           i,
-          frenchText: translations[i][0] as String,
-          englishText: translations[i][1] as String,
+          sourceText: translations[i][0] as String,
+          targetText: translations[i][1] as String,
         );
       }
     });
@@ -104,7 +104,7 @@ void main() {
       expect(results, isNotEmpty);
       expect(results.length, lessThanOrEqualTo(5));
       // Should find phrases containing "Bonjour"
-      expect(results.any((r) => r.frenchText.contains('Bonjour')), isTrue);
+      expect(results.any((r) => r.sourceText.contains('Bonjour')), isTrue);
     });
 
     test('should perform semantic search only', () async {
@@ -140,7 +140,7 @@ void main() {
       expect(results.length, lessThanOrEqualTo(3));
       // All results should contain keyword
       for (final result in results) {
-        expect(result.frenchText.toLowerCase(), contains('bonjour'));
+        expect(result.sourceText.toLowerCase(), contains('bonjour'));
       }
       // Results should be ranked by semantic similarity
       for (var i = 0; i < results.length - 1; i++) {
@@ -165,7 +165,7 @@ void main() {
       final results = await hybridSearcher.searchByKeyword('chat', k: 5);
 
       expect(results, isNotEmpty);
-      expect(results.any((r) => r.frenchText.contains('chat')), isTrue);
+      expect(results.any((r) => r.sourceText.contains('chat')), isTrue);
     });
 
     test('should return TranslationResult with all fields', () async {
@@ -177,8 +177,8 @@ void main() {
       expect(results, isNotEmpty);
       final result = results.first;
       expect(result.pointIndex, isNotNull);
-      expect(result.frenchText, isNotEmpty);
-      expect(result.englishText, isNotEmpty);
+      expect(result.sourceText, isNotEmpty);
+      expect(result.targetText, isNotEmpty);
       expect(result.distance, greaterThanOrEqualTo(0));
     });
 
@@ -189,13 +189,11 @@ void main() {
 
       final translations = [
         TranslationPair(
-            french: 'Bonjour', english: 'Hello', embedding: [0.1, 0.2, 0.3]),
+            source: 'Bonjour', target: 'Hello', embedding: [0.1, 0.2, 0.3]),
         TranslationPair(
-            french: 'Au revoir',
-            english: 'Goodbye',
-            embedding: [0.4, 0.5, 0.6]),
+            source: 'Au revoir', target: 'Goodbye', embedding: [0.4, 0.5, 0.6]),
         TranslationPair(
-            french: 'Merci', english: 'Thank you', embedding: [0.7, 0.8, 0.9]),
+            source: 'Merci', target: 'Thank you', embedding: [0.7, 0.8, 0.9]),
       ];
 
       final searcher = await HybridFTSSearcher.createFromTranslations(
@@ -208,7 +206,7 @@ void main() {
       // Test simplified search methods
       final keywordResults = await searcher.searchByKeyword('Bonjour');
       expect(keywordResults, isNotEmpty);
-      expect(keywordResults.first.frenchText, contains('Bonjour'));
+      expect(keywordResults.first.sourceText, contains('Bonjour'));
 
       final semanticResults = await searcher.searchBySemantic(
         Vector.fromList([0.1, 0.2, 0.3]),
@@ -223,7 +221,7 @@ void main() {
         k: 1,
       );
       expect(hybridResults, isNotEmpty);
-      expect(hybridResults.first.frenchText, contains('Merci'));
+      expect(hybridResults.first.sourceText, contains('Merci'));
 
       simpleStore.close();
       // Note: We can't access _dbPath directly, but the test DB will be cleaned up

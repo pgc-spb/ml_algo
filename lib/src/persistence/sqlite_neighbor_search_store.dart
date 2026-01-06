@@ -15,11 +15,13 @@ import 'package:ml_linalg/matrix.dart';
 import 'package:sqlite3/sqlite3.dart';
 
 /// Text content for a translation point.
+///
+/// Generic naming: source and target can be any languages.
 class TextContent {
-  final String? frenchText;
-  final String? englishText;
+  final String? sourceText;
+  final String? targetText;
 
-  TextContent(this.frenchText, this.englishText);
+  TextContent(this.sourceText, this.targetText);
 }
 
 /// SQLite implementation of [NeighborSearchStore].
@@ -100,15 +102,39 @@ class SQLiteNeighborSearchStore implements NeighborSearchStore {
     }
 
     // Add text content columns for FTS (migration support)
+    // Generic naming: source_text and target_text can be any languages
     try {
-      db.execute('ALTER TABLE searcher_points ADD COLUMN french_text TEXT');
+      db.execute('ALTER TABLE searcher_points ADD COLUMN source_text TEXT');
     } catch (e) {
       // Column already exists, ignore
     }
     try {
-      db.execute('ALTER TABLE searcher_points ADD COLUMN english_text TEXT');
+      db.execute('ALTER TABLE searcher_points ADD COLUMN target_text TEXT');
     } catch (e) {
       // Column already exists, ignore
+    }
+    // Migration: rename old columns if they exist
+    try {
+      db.execute('ALTER TABLE searcher_points ADD COLUMN french_text TEXT');
+      // If old column exists, copy data and drop it
+      db.execute('''
+        UPDATE searcher_points 
+        SET source_text = french_text 
+        WHERE source_text IS NULL AND french_text IS NOT NULL
+      ''');
+    } catch (e) {
+      // Column already exists or migration not needed, ignore
+    }
+    try {
+      db.execute('ALTER TABLE searcher_points ADD COLUMN english_text TEXT');
+      // If old column exists, copy data and drop it
+      db.execute('''
+        UPDATE searcher_points 
+        SET target_text = english_text 
+        WHERE target_text IS NULL AND english_text IS NOT NULL
+      ''');
+    } catch (e) {
+      // Column already exists or migration not needed, ignore
     }
 
     // Create FTS virtual table for full-text search
@@ -119,8 +145,8 @@ class SQLiteNeighborSearchStore implements NeighborSearchStore {
         CREATE VIRTUAL TABLE IF NOT EXISTS searcher_points_fts USING fts5(
           searcher_id,
           point_index,
-          french_text,
-          english_text
+          source_text,
+          target_text
         )
       ''');
 
@@ -136,8 +162,8 @@ class SQLiteNeighborSearchStore implements NeighborSearchStore {
           CREATE VIRTUAL TABLE IF NOT EXISTS searcher_points_fts USING fts4(
             searcher_id,
             point_index,
-            french_text,
-            english_text
+            source_text,
+            target_text
           )
         ''');
       } catch (e2) {
@@ -850,26 +876,27 @@ class SQLiteNeighborSearchStore implements NeighborSearchStore {
     );
   }
 
-  /// Adds text content (French and English) to a point for FTS indexing.
+  /// Adds text content (source and target) to a point for FTS indexing.
   ///
   /// This enables full-text search on translation pairs.
+  /// Generic naming: source and target can be any languages.
   Future<void> addTextContent(
     String searcherId,
     int pointIndex, {
-    required String frenchText,
-    required String englishText,
+    required String sourceText,
+    required String targetText,
   }) async {
     final db = _db!;
 
     // Update searcher_points table
     final updateStmt = db.prepare('''
       UPDATE searcher_points
-      SET french_text = ?, english_text = ?
+      SET source_text = ?, target_text = ?
       WHERE searcher_id = ? AND point_index = ?
     ''');
 
     try {
-      updateStmt.execute([frenchText, englishText, searcherId, pointIndex]);
+      updateStmt.execute([sourceText, targetText, searcherId, pointIndex]);
 
       // Update FTS index (if available)
       try {
@@ -883,10 +910,10 @@ class SQLiteNeighborSearchStore implements NeighborSearchStore {
 
         // Insert new entry
         final ftsStmt = db.prepare('''
-          INSERT INTO searcher_points_fts(searcher_id, point_index, french_text, english_text)
+          INSERT INTO searcher_points_fts(searcher_id, point_index, source_text, target_text)
           VALUES (?, ?, ?, ?)
         ''');
-        ftsStmt.execute([searcherId, pointIndex, frenchText, englishText]);
+        ftsStmt.execute([searcherId, pointIndex, sourceText, targetText]);
         ftsStmt.dispose();
       } catch (e) {
         // FTS table might not exist, ignore
@@ -919,12 +946,12 @@ class SQLiteNeighborSearchStore implements NeighborSearchStore {
       final phraseQuery = '"$escapedQuery"';
       final wordQuery = words.join(' OR ');
 
-      // FTS5 query: search in french_text and english_text columns
+      // FTS5 query: search in source_text and target_text columns
       // Try phrase search first, then fallback to word search
       final ftsStmt = db.prepare('''
         SELECT point_index FROM searcher_points_fts
         WHERE searcher_id = ?
-          AND (french_text MATCH ? OR english_text MATCH ?)
+          AND (source_text MATCH ? OR target_text MATCH ?)
       ''');
 
       // Try phrase search first (exact phrase match)
@@ -963,7 +990,7 @@ class SQLiteNeighborSearchStore implements NeighborSearchStore {
   ) async {
     final db = _db!;
     final stmt = db.prepare('''
-      SELECT french_text, english_text
+      SELECT source_text, target_text
       FROM searcher_points
       WHERE searcher_id = ? AND point_index = ?
     ''');

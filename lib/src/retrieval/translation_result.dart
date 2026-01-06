@@ -3,19 +3,19 @@ class TranslationResult {
   /// The point index in the searcher.
   final int pointIndex;
   
-  /// The French text.
-  final String frenchText;
+  /// The source text (can be any language).
+  final String sourceText;
   
-  /// The English text.
-  final String englishText;
+  /// The target text (can be any language).
+  final String targetText;
   
   /// The semantic distance (lower is more similar).
   final double distance;
   
   TranslationResult({
     required this.pointIndex,
-    required this.frenchText,
-    required this.englishText,
+    required this.sourceText,
+    required this.targetText,
     required this.distance,
   });
 }

@@ -53,8 +53,8 @@ class HybridFTSSearcher {
   /// Example:
   /// ```dart
   /// final translations = [
-  ///   TranslationPair(french: 'Bonjour', english: 'Hello', embedding: [0.1, 0.2, 0.3]),
-  ///   TranslationPair(french: 'Au revoir', english: 'Goodbye', embedding: [0.4, 0.5, 0.6]),
+  ///   TranslationPair(source: 'Bonjour', target: 'Hello', embedding: [0.1, 0.2, 0.3]),
+  ///   TranslationPair(source: 'Au revoir', target: 'Goodbye', embedding: [0.4, 0.5, 0.6]),
   /// ];
   ///
   /// final searcher = await HybridFTSSearcher.createFromTranslations(
@@ -80,11 +80,11 @@ class HybridFTSSearcher {
     final embeddingDim = translations.first.embedding.length;
     for (var i = 0; i < translations.length; i++) {
       final t = translations[i];
-      if (t.french.trim().isEmpty) {
-        throw ArgumentError('Translation at index $i has empty French text');
+      if (t.source.trim().isEmpty) {
+        throw ArgumentError('Translation at index $i has empty source text');
       }
-      if (t.english.trim().isEmpty) {
-        throw ArgumentError('Translation at index $i has empty English text');
+      if (t.target.trim().isEmpty) {
+        throw ArgumentError('Translation at index $i has empty target text');
       }
       if (t.embedding.length != embeddingDim) {
         throw ArgumentError(
@@ -128,8 +128,8 @@ class HybridFTSSearcher {
       await store.addTextContent(
         searcherId,
         i,
-        frenchText: translations[i].french.trim(),
-        englishText: translations[i].english.trim(),
+        sourceText: translations[i].source.trim(),
+        targetText: translations[i].target.trim(),
       );
     }
   }
@@ -246,11 +246,11 @@ class HybridFTSSearcher {
     final results = <TranslationResult>[];
     for (final index in ftsIndices.take(k)) {
       final textContent = await _store.getTextContent(_searcherId, index);
-      if (textContent.frenchText != null && textContent.englishText != null) {
+      if (textContent.sourceText != null && textContent.targetText != null) {
         results.add(TranslationResult(
           pointIndex: index,
-          frenchText: textContent.frenchText!,
-          englishText: textContent.englishText!,
+          sourceText: textContent.sourceText!,
+          targetText: textContent.targetText!,
           distance: 0.0, // No semantic distance for keyword-only
         ));
       }
@@ -281,11 +281,11 @@ class HybridFTSSearcher {
         _searcherId,
         neighbour.index,
       );
-      if (textContent.frenchText != null && textContent.englishText != null) {
+      if (textContent.sourceText != null && textContent.targetText != null) {
         results.add(TranslationResult(
           pointIndex: neighbour.index,
-          frenchText: textContent.frenchText!,
-          englishText: textContent.englishText!,
+          sourceText: textContent.sourceText!,
+          targetText: textContent.targetText!,
           distance: neighbour.distance.toDouble(),
         ));
       }
@@ -333,11 +333,11 @@ class HybridFTSSearcher {
           _searcherId,
           neighbour.index,
         );
-        if (textContent.frenchText != null && textContent.englishText != null) {
+        if (textContent.sourceText != null && textContent.targetText != null) {
           candidates.add(TranslationResult(
             pointIndex: neighbour.index,
-            frenchText: textContent.frenchText!,
-            englishText: textContent.englishText!,
+            sourceText: textContent.sourceText!,
+            targetText: textContent.targetText!,
             distance: neighbour.distance.toDouble(),
           ));
 
