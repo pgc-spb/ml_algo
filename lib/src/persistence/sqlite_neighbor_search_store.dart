@@ -944,7 +944,6 @@ class SQLiteNeighborSearchStore implements NeighborSearchStore {
       // Build FTS5 query: use phrase search (quoted) for exact match
       // FTS5 supports: "exact phrase" or word1 word2 (OR) or word1 OR word2
       final phraseQuery = '"$escapedQuery"';
-      final wordQuery = words.join(' OR ');
 
       // FTS5 query: search in source_text and target_text columns
       // Try phrase search first, then fallback to word search
