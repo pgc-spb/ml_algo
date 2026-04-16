@@ -304,8 +304,10 @@ class HybridFTSSearcher {
   ) async {
     // Step 1: FTS filtering
     final ftsIndices = _store.ftsSearch(_searcherId, keywordQuery);
+    print('      [HybridFTSSearcher DEBUG] FTS search for "$keywordQuery" returned ${ftsIndices.length} indices: $ftsIndices');
 
     if (ftsIndices.isEmpty) {
+      print('      [HybridFTSSearcher DEBUG] FTS returned empty, returning []');
       return [];
     }
 
@@ -314,6 +316,7 @@ class HybridFTSSearcher {
     // Ensure we don't exceed available FTS results
     final maxK = ftsIndices.length;
     final expandedK = maxK < k ? maxK : (k * 3).clamp(k, maxK);
+    print('      [HybridFTSSearcher DEBUG] Querying RBPS with expandedK=$expandedK');
 
     // Step 3: Get semantic neighbors (already sorted by distance)
     final allNeighbours = _rbpsSearcher.query(
@@ -322,13 +325,16 @@ class HybridFTSSearcher {
       searchRadius,
       distance: distance,
     );
+    print('      [HybridFTSSearcher DEBUG] RBPS returned ${allNeighbours.length} neighbours: ${allNeighbours.map((n) => n.index).toList()}');
 
     // Step 4: Filter to only FTS-matched indices and get text content
     final ftsSet = ftsIndices.toSet();
     final candidates = <TranslationResult>[];
+    int overlappingIndices = 0;
 
     for (final neighbour in allNeighbours) {
       if (ftsSet.contains(neighbour.index)) {
+        overlappingIndices++;
         final textContent = await _store.getTextContent(
           _searcherId,
           neighbour.index,
@@ -348,6 +354,7 @@ class HybridFTSSearcher {
         }
       }
     }
+    print('      [HybridFTSSearcher DEBUG] FTS∩RBPS overlap: $overlappingIndices indices matched, returning ${candidates.length} results');
 
     // Results are already sorted by distance from RBPS query
     return candidates;
